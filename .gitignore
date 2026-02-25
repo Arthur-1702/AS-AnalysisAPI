@@ -1,0 +1,9 @@
+bin/
+obj/
+.vs/
+.vscode/
+*.user
+appsettings.Development.json
+appsettings.*.json
+!appsettings.json
+src/Data/Migrations/
