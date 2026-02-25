@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fcg-analisysapi-config
+  namespace: default
+data:
+  # Logging Configuration
+  Logging__LogLevel__Default: "Information"
+  Logging__LogLevel__Microsoft.AspNetCore: "Warning"
+
+  # JWT Configuration
+  Jwt__Issuer: "analisysapi"
+
+  # API Configuration
+  AllowedHosts: "*"
+
+  # ServiceBus Configuration
+  ServiceBus__NotificationQueueName: "sensor-readings"

@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analisysapi
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: analisysapi
+  template:
+    metadata:
+      labels:
+        app: analisysapi
+    spec:
+      containers:
+        - name: analisysapi
+          image: arthur1702/analisysapi:latest
+          env:
+            - name: TZ
+              value: "America/Sao_Paulo"
+          ports:
+            - containerPort: 80
