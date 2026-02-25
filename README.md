@@ -200,7 +200,7 @@ az sql db create \
 ### 2. Atualizar connection string
 
 ```json
-"AnalysisDb": "Server=agromonitor-sqlsrv.database.windows.net;Database=agromonitor-analysis;User Id=fiapas;Password=123@login;Encrypt=True;"
+"AnalysisDb": ""
 ```
 
 ### 3. Aplicar migration
