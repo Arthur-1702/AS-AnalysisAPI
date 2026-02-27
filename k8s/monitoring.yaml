@@ -2,13 +2,13 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: prometheus-users
+  name: prometheus-analisys
   namespace: default
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: prometheus-users
+  name: prometheus-analisys
 rules:
   - apiGroups: [""]
     resources:
@@ -29,55 +29,67 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: prometheus-users
+  name: prometheus-analisys
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: prometheus-users
+  name: prometheus-analisys
 subjects:
   - kind: ServiceAccount
-    name: prometheus-users
+    name: prometheus-analisys
     namespace: default
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: prometheus-users-config
+  name: prometheus-analisys-config
 data:
   prometheus.yml: |
     global:
-      scrape_interval: 10s
+      scrape_interval: 15s
+      evaluation_interval: 15s
 
     scrape_configs:
-      - job_name: "analisys-api"
+      - job_name: "analysis-service"
+        static_configs:
+          - targets: ["analysis-service:8080"]
+        metrics_path: "/metrics"
+
+      - job_name: "kubernetes-pods"
         kubernetes_sd_configs:
           - role: pod
             namespaces:
               names:
                 - default
         relabel_configs:
-          - source_labels: [__meta_kubernetes_pod_label_app]
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
             action: keep
-            regex: analisysapi
-          - source_labels: [__meta_kubernetes_pod_ip]
+            regex: "true"
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
             target_label: __address__
-            replacement: $1:8080
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: prometheus-users
+  name: prometheus-analisys
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: prometheus-users
+      app: prometheus-analisys
   template:
     metadata:
       labels:
-        app: prometheus-users
+        app: prometheus-analisys
     spec:
-      serviceAccountName: prometheus-users
+      serviceAccountName: prometheus-analisys
       containers:
         - name: prometheus
           image: prom/prometheus:latest
@@ -94,36 +106,414 @@ spec:
       volumes:
         - name: config
           configMap:
-            name: prometheus-users-config
+            name: prometheus-analisys-config
         - name: data
           emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: prometheus-users-service
+  name: prometheus-analisys-service
 spec:
   selector:
-    app: prometheus-users
+    app: prometheus-analisys
   ports:
     - protocol: TCP
       port: 9090
       targetPort: 9090
   type: LoadBalancer
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-provisioning-datasources
+  namespace: default
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        isDefault: true
+        url: http://prometheus-analisys-service:9090
+        jsonData:
+          timeInterval: 15s
+        editable: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-provisioning-dashboards
+  namespace: default
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: 'AgroSolutions'
+        orgId: 1
+        folder: ''
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /etc/grafana/provisioning/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard
+  namespace: default
+data:
+  agrosolutions-dashboard.json: |
+    {
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": "-- Grafana --",
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          }
+        ]
+      },
+      "editable": true,
+      "gnetId": null,
+      "graphTooltip": 0,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisLabel": "Umidade (%)",
+                "axisPlacement": "auto",
+                "drawStyle": "line",
+                "fillOpacity": 20,
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "scaleDistribution": { "type": "linear" },
+                "showPoints": "auto",
+                "spanNulls": true
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "yellow", "value": 30 },
+                  { "color": "green", "value": 50 }
+                ]
+              },
+              "unit": "percent"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "id": 1,
+          "options": {
+            "legend": {
+              "calcs": ["last", "mean"],
+              "displayMode": "table",
+              "placement": "right"
+            },
+            "tooltip": { "mode": "multi" }
+          },
+          "targets": [
+            {
+              "expr": "analysis_soil_humidity_percent",
+              "legendFormat": "Talhão {{field_id}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Umidade do Solo",
+          "type": "timeseries"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisLabel": "Temperatura (°C)",
+                "axisPlacement": "auto",
+                "drawStyle": "line",
+                "fillOpacity": 20,
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "scaleDistribution": { "type": "linear" },
+                "showPoints": "auto",
+                "spanNulls": true
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "blue", "value": null },
+                  { "color": "green", "value": 10 },
+                  { "color": "yellow", "value": 30 },
+                  { "color": "red", "value": 40 }
+                ]
+              },
+              "unit": "celsius"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "id": 2,
+          "options": {
+            "legend": {
+              "calcs": ["last", "mean"],
+              "displayMode": "table",
+              "placement": "right"
+            },
+            "tooltip": { "mode": "multi" }
+          },
+          "targets": [
+            {
+              "expr": "analysis_temperature_celsius",
+              "legendFormat": "Talhão {{field_id}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Temperatura",
+          "type": "timeseries"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisLabel": "Precipitação (mm)",
+                "axisPlacement": "auto",
+                "drawStyle": "bars",
+                "fillOpacity": 80,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": { "type": "linear" },
+                "showPoints": "never",
+                "spanNulls": true
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 30 },
+                  { "color": "red", "value": 50 }
+                ]
+              },
+              "unit": "mm"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "id": 3,
+          "options": {
+            "legend": {
+              "calcs": ["last", "sum"],
+              "displayMode": "table",
+              "placement": "right"
+            },
+            "tooltip": { "mode": "multi" }
+          },
+          "targets": [
+            {
+              "expr": "analysis_precipitation_mm",
+              "legendFormat": "Talhão {{field_id}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Precipitação (Rainfall)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [
+                {
+                  "options": {
+                    "0": { "text": "Normal", "color": "green" },
+                    "1": { "text": "Alerta de Seca", "color": "orange" },
+                    "2": { "text": "Risco de Praga", "color": "red" },
+                    "3": { "text": "Risco de Alagamento", "color": "blue" }
+                  },
+                  "type": "value"
+                }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "orange", "value": 1 },
+                  { "color": "red", "value": 2 }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+          "id": 4,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": ["lastNotNull"],
+              "fields": "",
+              "values": false
+            },
+            "text": {},
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "analysis_field_status",
+              "legendFormat": "Talhão {{field_id}}",
+              "format": "table",
+              "instant": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Status dos Talhões",
+          "type": "stat"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                }
+              },
+              "mappings": [],
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+          "id": 5,
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "calcs": ["value", "percent"]
+            },
+            "pieType": "donut",
+            "tooltip": { "mode": "single" }
+          },
+          "targets": [
+            {
+              "expr": "sum(increase(analysis_alerts_generated_total[24h])) by (type)",
+              "legendFormat": "{{type}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Alertas Gerados (últimas 24h)",
+          "type": "piechart"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 1 },
+                  { "color": "red", "value": 5 }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+          "id": 6,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": ["lastNotNull"],
+              "fields": "",
+              "values": false
+            },
+            "text": {},
+            "textMode": "auto"
+          },
+          "pluginVersion": "8.0.0",
+          "targets": [
+            {
+              "expr": "sum(analysis_active_alerts)",
+              "legendFormat": "Total",
+              "instant": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Alertas Ativos Totais",
+          "type": "stat"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 27,
+      "style": "dark",
+      "tags": ["AgroSolutions", "AnalysisService", "Production"],
+      "templating": { "list": [] },
+      "time": { "from": "now-6h", "to": "now" },
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "AgroSolutions - Monitoramento de Talhões",
+      "uid": "agrosolutions-fields",
+      "version": 1
+    }
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: grafana-users
+  name: grafana-analisys
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: grafana-users
+      app: grafana-analisys
   template:
     metadata:
       labels:
-        app: grafana-users
+        app: grafana-analisys
     spec:
       containers:
         - name: grafana
@@ -133,20 +523,39 @@ spec:
           env:
             - name: GF_SECURITY_ADMIN_PASSWORD
               value: "admin"
+            - name: GF_SECURITY_ADMIN_USER
+              value: "admin"
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
           volumeMounts:
             - name: data
               mountPath: /var/lib/grafana
+            - name: provisioning-datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: provisioning-dashboards-config
+              mountPath: /etc/grafana/provisioning/dashboards/provisioning
+            - name: dashboards
+              mountPath: /etc/grafana/provisioning/dashboards
       volumes:
         - name: data
           emptyDir: {}
+        - name: provisioning-datasources
+          configMap:
+            name: grafana-provisioning-datasources
+        - name: provisioning-dashboards-config
+          configMap:
+            name: grafana-provisioning-dashboards
+        - name: dashboards
+          configMap:
+            name: grafana-dashboard
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: grafana-users-service
+  name: grafana-analisys-service
 spec:
   selector:
-    app: grafana-users
+    app: grafana-analisys
   ports:
     - protocol: TCP
       port: 3000

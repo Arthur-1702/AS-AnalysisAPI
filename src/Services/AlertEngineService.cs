@@ -1,4 +1,5 @@
 using AnalysisService.Data;
+using AnalysisService.Metrics;
 using AnalysisService.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -17,6 +18,9 @@ public class AlertEngineService(
             "Processando evento. FieldId={FieldId} Humidity={Humidity} Temp={Temp} Precip={Precip}",
             evt.FieldId, evt.SoilHumidity, evt.Temperature, evt.Precipitation);
 
+        // Registra métricas de sensores
+        MetricsMiddleware.RecordSensorReading(evt.FieldId, evt.SoilHumidity, evt.Temperature, evt.Precipitation);
+
         // Executa todas as regras em paralelo
         var ruleResults = await Task.WhenAll(
             droughtRule.EvaluateAsync(evt, ct),
@@ -31,6 +35,12 @@ public class AlertEngineService(
             db.Alerts.AddRange(newAlerts);
             logger.LogWarning("{Count} alerta(s) gerado(s) para FieldId={FieldId}.",
                 newAlerts.Count, evt.FieldId);
+
+            // Registra cada alerta gerado nas métricas
+            foreach (var alert in newAlerts)
+            {
+                MetricsMiddleware.RecordAlertGenerated(alert.FieldId, alert.Type.ToString());
+            }
         }
 
         // Atualiza (ou cria) o status do talhao
@@ -60,6 +70,17 @@ public class AlertEngineService(
             : await HasActiveAlertsAsync(evt.FieldId, ct)
                 ? await GetCurrentStatusAsync(evt.FieldId, ct)
                 : FieldStatusType.Normal;
+
+        // Registra o status do talhão nas métricas (0=Normal, 1=Seca, 2=Praga, 3=Alagamento)
+        var statusCode = status.Status switch
+        {
+            FieldStatusType.Normal => 0,
+            FieldStatusType.DroughtAlert => 1,
+            FieldStatusType.PestRisk => 2,
+            FieldStatusType.FloodRisk => 3,
+            _ => 0
+        };
+        MetricsMiddleware.RecordFieldStatus(evt.FieldId, statusCode);
 
         // Add para insercao, Update so para registros ja existentes no banco
         if (isNew)
