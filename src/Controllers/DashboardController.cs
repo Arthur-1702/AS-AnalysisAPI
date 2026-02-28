@@ -7,7 +7,6 @@ namespace AnalysisService.Controllers;
 
 [ApiController]
 [Route("dashboard")]
-[Authorize]
 public class DashboardController(DashboardService dashboardService) : ControllerBase
 {
     /// <summary>
@@ -17,6 +16,7 @@ public class DashboardController(DashboardService dashboardService) : Controller
     /// </summary>
     /// <param name="fieldIds">Lista de IDs de talhões (query string: ?fieldIds=id1&amp;fieldIds=id2)</param>
     [HttpGet]
+    [Authorize]
     [ProducesResponseType(typeof(DashboardResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> GetDashboard(
