@@ -104,10 +104,10 @@ app.UseSwaggerUI();
 app.UseMiddleware<MetricsMiddleware>();
 app.UseHttpMetrics();
 
+app.UseCors("AllowAll");
+
 app.UseAuthentication();
 app.UseAuthorization();
-
-app.UseCors("AllowAll");
 
 app.MapControllers();
 app.MapMetrics();   // GET /metrics
