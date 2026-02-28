@@ -90,6 +90,10 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+// ── Middleware pipeline ───────────────────────────────────────────────────
+// CORS DEVE SER O PRIMEIRO MIDDLEWARE (antes de tudo, inclusive metrics)
+app.UseCors("AllowAll");
+
 // ── Auto-migrate on startup ───────────────────────────────────────────────
 using (var scope = app.Services.CreateScope())
 {
@@ -97,14 +101,11 @@ using (var scope = app.Services.CreateScope())
     db.Database.Migrate();
 }
 
-// ── Middleware pipeline ───────────────────────────────────────────────────
 app.UseSwagger();
 app.UseSwaggerUI();
 
 app.UseMiddleware<MetricsMiddleware>();
 app.UseHttpMetrics();
-
-app.UseCors("AllowAll");
 
 app.UseAuthentication();
 app.UseAuthorization();
